@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <unistd.h>
+#include <sys/epoll.h>
 #include <arpa/inet.h>
 
 /** ---- SPECYFIKACJA ----
@@ -52,38 +53,50 @@ int main() {
 		return 1;
 	}
 
-	if (listen(server_fd, 5) < 0) {
+	if (listen(server_fd, 10) < 0) {
 		perror("listen");
 		return 1;
 	}
 
-	std::cout << "Server listening on port 2020...\n";
+	const int epoll_fd = epoll_create1(0);
+	epoll_event ev{};
+	ev.events = EPOLLIN;
+	ev.data.fd = server_fd;
 
-	sockaddr_in client_addr{};
-	socklen_t client_len = sizeof(client_addr);
+	epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev);
+	epoll_event events[10];
 
-	const int client_fd = accept(server_fd, reinterpret_cast<sockaddr *>(&client_addr), &client_len);
-	if (client_fd < 0) {
-		perror("accept");
-		return 1;
-	}
+	while (true) {
+		const int n = epoll_wait(epoll_fd, events, 10, -1);
 
-	char buffer[1024] = {0};
-	int bytes = recv(client_fd, buffer, sizeof(buffer), 0);
+		for (int i = 0; i < n; i++) {
+			const int fd = events[i].data.fd;
 
-	std::cout << "Received: " << buffer << "\n";
+			if (fd == server_fd) {
+				const int client_fd = accept(server_fd, nullptr, nullptr);
 
-	const char* msg = "Hello from server";
-	send(client_fd, msg, strlen(msg), 0);
+				epoll_event cev{};
+				cev.events = EPOLLIN;
+				cev.data.fd = client_fd;
 
-	if (close(client_fd)) {
-		perror("close");
-		return 1;
-	}
+				epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &cev);
 
-	if (close(server_fd) < 0) {
-		perror("close");
-		return 1;
+			} else {
+				char buffer[1024];
+				ssize_t bytes = recv(fd, buffer, sizeof(buffer), 0);
+				if (bytes <= 0) {
+					if (close(fd)) {
+						perror("close");
+						return 1;
+					}
+
+					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
+
+				} else {
+					send(fd, buffer, bytes, 0);
+				}
+			}
+		}
 	}
 
 	return 0;
