@@ -1,5 +1,5 @@
-# Created by https://www.toptal.com/developers/gitignore/api/c++,clion
-# Edit at https://www.toptal.com/developers/gitignore?templates=c++,clion
+# Created by https://www.toptal.com/developers/gitignore/api/c++,clion,cmake
+# Edit at https://www.toptal.com/developers/gitignore?templates=c++,clion,cmake
 
 ### C++ ###
 # Prerequisites
@@ -80,6 +80,8 @@
 
 # CMake
 cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
 
 # Mongo Explorer plugin
 .idea/**/mongoSettings.xml
@@ -148,4 +150,23 @@ fabric.properties
 # https://plugins.jetbrains.com/plugin/8053-azure-toolkit-for-intellij
 .idea/**/azureSettings.xml
 
-# End of https://www.toptal.com/developers/gitignore/api/c++,clion
+### CMake ###
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+### CMake Patch ###
+CMakeUserPresets.json
+
+# External projects
+*-prefix/
+
+# End of https://www.toptal.com/developers/gitignore/api/c++,clion,cmake
