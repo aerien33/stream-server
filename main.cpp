@@ -36,6 +36,43 @@ ale dane w niej zawarte są niepoprawne (np. oprócz liter i spacji są przecink
 Powinien wtedy zwracać komunikat błędu i przechodzić do przetwarzania następnej linii przesłanej przez klienta.
 **/
 
+bool is_terminator(const unsigned char* c) {
+	return *c == '\r' && c[1] == '\n';
+}
+
+bool is_single_space(const unsigned char* c) {
+	return *c == ' ' && c[1] != ' ';
+}
+
+bool is_letter(const unsigned char* c) {
+	if (*c >= 'a' && *c <= 'z') return true;
+	if (*c >= 'A' && *c <= 'Z') return true;
+	return false;
+}
+
+bool is_valid_char(const unsigned char* c) {
+	if (is_letter(c)) return true;
+	if (is_single_space(c)) return true;
+	if (is_terminator(c)) return true;
+	return false;
+}
+
+bool is_valid_query(const unsigned char *buf, size_t len) {
+	if (len == 2 && is_terminator(buf)) return true;
+	if (!is_letter(buf)) return false;
+	if (!is_letter(&buf[len - 1])) return false;
+
+	for (size_t i = 1; i < len; i++) {
+		if (!is_valid_char(&buf[i])) return false;
+	}
+
+	return true;
+}
+
+ssize_t generate_error(unsigned char *buf) {
+	return sprintf(reinterpret_cast<char *>(buf), "ERROR");
+}
+
 int main() {
 	const int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_fd == -1) {
@@ -59,11 +96,13 @@ int main() {
 	}
 
 	const int epoll_fd = epoll_create1(0);
+
 	epoll_event ev{};
 	ev.events = EPOLLIN;
 	ev.data.fd = server_fd;
 
 	epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev);
+
 	epoll_event events[10];
 
 	while (true) {
@@ -93,6 +132,16 @@ int main() {
 					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
 
 				} else {
+					//validate data
+					//store data OR process data
+					//generate response
+					//validate response
+
+					auto buf = reinterpret_cast<unsigned char*>(buffer);
+					if (!is_valid_query(buf, bytes)) {
+						generate_error(buf);
+					}
+
 					send(fd, buffer, bytes, 0);
 				}
 			}
