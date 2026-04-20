@@ -4,6 +4,9 @@
 #include <sys/epoll.h>
 #include <arpa/inet.h>
 
+// BUF_SIZE >= 1024
+constexpr ssize_t BUF_SIZE = 1024;
+
 /** ---- SPECYFIKACJA ----
 Klient wysyła jedną lub więcej linii zawierających wyrazy.
 Dla każdej odebranej linii serwer zwraca:
@@ -58,7 +61,6 @@ bool is_valid_char(const unsigned char* c) {
 }
 
 bool is_valid_query(const unsigned char *buf, size_t len) {
-	if (len == 2 && is_terminator(buf)) return true;
 	if (!is_letter(buf)) return false;
 	if (!is_letter(&buf[len - 1])) return false;
 
@@ -82,7 +84,21 @@ ssize_t get_response(unsigned char *buf, size_t len) {
 		return sprintf(reinterpret_cast<char *>(buf), "ERROR");
 	}
 
-	return sprintf(reinterpret_cast<char *>(buf), "ERROR");
+	return sprintf(reinterpret_cast<char *>(buf), "1/1");
+}
+
+bool is_valid_response(unsigned char *buf, const ssize_t len) {
+	if (len < 3) return false;
+
+	if (len == 5 && *buf == 'E') {
+		return strcmp(reinterpret_cast<char *>(buf), "ERROR") == 0;
+	}
+
+	for (size_t i = 0; i < len; i++) {
+		if (buf[i] < '/' || buf[i] > '9') return false;
+	}
+
+	return true;
 }
 
 int main() {
@@ -133,9 +149,9 @@ int main() {
 				epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &cev);
 
 			} else {
-				char buffer[1024];
+				char buffer[BUF_SIZE];
 				ssize_t bytes = recv(fd, buffer, sizeof(buffer), 0);
-				if (bytes <= 0) {
+				if (bytes <= 2) {
 					if (close(fd)) {
 						perror("close");
 						return 1;
@@ -146,8 +162,14 @@ int main() {
 				} else {
 					auto buf = reinterpret_cast<unsigned char*>(buffer);
 					bytes = get_response(buf, bytes);
-					//validate response
-					send(fd, buffer, bytes, 0);
+					if (is_valid_response(buf, bytes)) {
+						send(fd, buffer, bytes, 0);
+					} else {
+						if (close(fd)) {
+							perror("close");
+							return 1;
+						}
+					}
 				}
 			}
 		}
