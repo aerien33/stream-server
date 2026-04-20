@@ -69,7 +69,19 @@ bool is_valid_query(const unsigned char *buf, size_t len) {
 	return true;
 }
 
-ssize_t generate_error(unsigned char *buf) {
+//validate data
+//store data OR process data
+//generate response
+//validate response
+ssize_t get_response(unsigned char *buf, size_t len) {
+	if (len == 2 && is_terminator(buf)) {
+		return sprintf(reinterpret_cast<char *>(buf), "0/0");
+	}
+
+	if (is_valid_query(buf, len) == false) {
+		return sprintf(reinterpret_cast<char *>(buf), "ERROR");
+	}
+
 	return sprintf(reinterpret_cast<char *>(buf), "ERROR");
 }
 
@@ -132,16 +144,9 @@ int main() {
 					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
 
 				} else {
-					//validate data
-					//store data OR process data
-					//generate response
-					//validate response
-
 					auto buf = reinterpret_cast<unsigned char*>(buffer);
-					if (!is_valid_query(buf, bytes)) {
-						generate_error(buf);
-					}
-
+					bytes = get_response(buf, bytes);
+					//validate response
 					send(fd, buffer, bytes, 0);
 				}
 			}
