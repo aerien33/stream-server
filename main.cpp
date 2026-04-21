@@ -59,6 +59,20 @@ std::vector<std::string> divide(std::string &data, const std::string &del) {
 	return parts;
 }
 
+bool is_palindrome(const std::string &word) {
+	if (word.empty()) return false;
+
+	auto i = word.begin();
+	auto j = word.end() - 1;
+
+	while (i < j) {
+		if (*i != *j && *i != *j - 32) return false;
+		++i; --j;
+	}
+
+	return true;
+}
+
 bool is_valid_query(const std::string &data) {
 	return std::regex_match(data, std::regex(R"(^([A-Za-z]+( [A-Za-z]+)*|)$)"));
 }
@@ -76,9 +90,10 @@ std::string get_response(std::string &query) {
 		auto words = divide(query, " ");
 		auto palindromes = 0;
 
-		for (size_t i = 0; i < words.size(); i++) {
-			//if is_palindrome
-			//palindromes ++;
+		for (const auto & word : words) {
+			if (is_palindrome(word)) {
+				palindromes++;
+			}
 		}
 
 		response += palindromes + "/" + words.size();
