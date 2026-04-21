@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <vector>
 #include <regex>
+#include <unordered_map>
 
 // BUF_SIZE >= 1024
 constexpr ssize_t BUF_SIZE = 1024;
@@ -50,10 +51,6 @@ std::vector<std::string> divide(std::string &data, const std::string &del) {
 		parts.push_back(data.substr(0, pos));
 		data.erase(0, pos + del.length());
 		pos = data.find(del);
-	}
-
-	if (!data.empty()) {
-		//save unfinished query to vector state
 	}
 
 	return parts;
@@ -132,6 +129,8 @@ int main() {
 
 	epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev);
 
+	std::unordered_map<int, std::string> state;
+
 	while (true) {
 		epoll_event events[10];
 		const int n = epoll_wait(epoll_fd, events, 10, -1);
@@ -160,8 +159,17 @@ int main() {
 					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
 
 				} else {
-					std::string data(buffer, bytes);
+					std::string data;
+					if (state.find(fd) != state.end()) {
+						data = state[fd];
+						state.erase(fd);
+					}
+
+					data += std::string(buffer, bytes);
 					auto queries = divide(data, "\r\n");
+					if (!data.empty()) {
+						state[fd] = data;
+					}
 
 					std::string response;
 					for (auto &query : queries) {
