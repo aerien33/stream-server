@@ -1,8 +1,11 @@
+#include <algorithm>
 #include <iostream>
-#include <cstring>
+#include <string>
 #include <unistd.h>
 #include <sys/epoll.h>
 #include <arpa/inet.h>
+#include <vector>
+#include <regex>
 
 // BUF_SIZE >= 1024
 constexpr ssize_t BUF_SIZE = 1024;
@@ -39,66 +42,49 @@ ale dane w niej zawarte są niepoprawne (np. oprócz liter i spacji są przecink
 Powinien wtedy zwracać komunikat błędu i przechodzić do przetwarzania następnej linii przesłanej przez klienta.
 **/
 
-bool is_terminator(const unsigned char* c) {
-	return *c == '\r' && c[1] == '\n';
-}
+std::vector<std::string> divide(std::string &data, const std::string &del) {
+	std::vector<std::string> parts;
 
-bool is_single_space(const unsigned char* c) {
-	return *c == ' ' && c[1] != ' ';
-}
-
-bool is_letter(const unsigned char* c) {
-	if (*c >= 'a' && *c <= 'z') return true;
-	if (*c >= 'A' && *c <= 'Z') return true;
-	return false;
-}
-
-bool is_valid_char(const unsigned char* c) {
-	if (is_letter(c)) return true;
-	if (is_single_space(c)) return true;
-	if (is_terminator(c)) return true;
-	return false;
-}
-
-bool is_valid_query(const unsigned char *buf, size_t len) {
-	if (!is_letter(buf)) return false;
-	if (!is_letter(&buf[len - 1])) return false;
-
-	for (size_t i = 1; i < len; i++) {
-		if (!is_valid_char(&buf[i])) return false;
+	auto pos = data.find(del);
+	while (pos != std::string::npos) {
+		parts.push_back(data.substr(0, pos));
+		data.erase(0, pos + del.length());
+		pos = data.find(del);
 	}
 
-	return true;
+	if (!data.empty()) {
+		//save unfinished query to vector state
+	}
+
+	return parts;
 }
 
-//validate data
-//store data OR process data
-//generate response
-//validate response
-ssize_t get_response(unsigned char *buf, size_t len) {
-	if (len == 2 && is_terminator(buf)) {
-		return sprintf(reinterpret_cast<char *>(buf), "0/0");
-	}
-
-	if (is_valid_query(buf, len) == false) {
-		return sprintf(reinterpret_cast<char *>(buf), "ERROR");
-	}
-
-	return sprintf(reinterpret_cast<char *>(buf), "1/1");
+bool is_valid_query(const std::string &data) {
+	return std::regex_match(data, std::regex(R"(^([A-Za-z]+( [A-Za-z]+)*|)$)"));
 }
 
-bool is_valid_response(unsigned char *buf, const ssize_t len) {
-	if (len < 3) return false;
+bool is_valid_response(const std::string &data) {
+	return std::regex_match(data,std::regex(R"(((\d+/\d+)*(ERROR)*\r\n)+)"));
+}
 
-	if (len == 5 && *buf == 'E') {
-		return strcmp(reinterpret_cast<char *>(buf), "ERROR") == 0;
+std::string get_response(std::string &query) {
+	std::string response;
+
+	if (!is_valid_query(query)) {
+		response = "ERROR";
+	} else {
+		auto words = divide(query, " ");
+		auto palindromes = 0;
+
+		for (size_t i = 0; i < words.size(); i++) {
+			//if is_palindrome
+			//palindromes ++;
+		}
+
+		response += palindromes + "/" + words.size();
 	}
 
-	for (size_t i = 0; i < len; i++) {
-		if (buf[i] < '/' || buf[i] > '9') return false;
-	}
-
-	return true;
+	return response + "\r\n";
 }
 
 int main() {
@@ -131,9 +117,8 @@ int main() {
 
 	epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev);
 
-	epoll_event events[10];
-
 	while (true) {
+		epoll_event events[10];
 		const int n = epoll_wait(epoll_fd, events, 10, -1);
 
 		for (int i = 0; i < n; i++) {
@@ -151,7 +136,7 @@ int main() {
 			} else {
 				char buffer[BUF_SIZE];
 				ssize_t bytes = recv(fd, buffer, sizeof(buffer), 0);
-				if (bytes <= 2) {
+				if (bytes < 2 || bytes >= BUF_SIZE) {
 					if (close(fd)) {
 						perror("close");
 						return 1;
@@ -160,15 +145,20 @@ int main() {
 					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
 
 				} else {
-					auto buf = reinterpret_cast<unsigned char*>(buffer);
-					bytes = get_response(buf, bytes);
-					if (is_valid_response(buf, bytes)) {
-						send(fd, buffer, bytes, 0);
+					std::string data(buffer, bytes);
+					auto queries = divide(data, "\r\n");
+
+					std::string response;
+					for (auto &query : queries) {
+						response += get_response(query);
+					}
+
+					if (is_valid_response(response)) {
+						send(fd, response.data(), response.size(), 0);
 					} else {
-						if (close(fd)) {
-							perror("close");
-							return 1;
-						}
+						perror("invalid response");
+						if (close(fd)) perror("close");
+						return 1;
 					}
 				}
 			}
