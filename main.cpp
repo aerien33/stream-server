@@ -11,38 +11,6 @@
 // BUF_SIZE >= 1024
 constexpr ssize_t BUF_SIZE = 1024;
 
-/** ---- SPECYFIKACJA ----
-Klient wysyła jedną lub więcej linii zawierających wyrazy.
-Dla każdej odebranej linii serwer zwraca:
- - linię zawierającą albo obliczony wynik,
- - albo komunikat o błędzie.
-
-Ogólna definicja linii jest zapożyczona z innych protokołów tekstowych:
-ciąg drukowalnych znaków ASCII (być może pusty)
-zakończony dwuznakiem \r\n pełniącym rolę terminatora linii.
-
-Linia z zapytaniem klienta może zawierać tylko litery
-oraz spacje pełniące rolę separatorów słów.
-Obowiązują te same wymagania i interpretacje co w uprzednio rozważanym protokole datagramowym
-(puste zapytanie z zero słów jest uznawane za poprawne, utożsamiamy wielkie i małe litery, itd.).
-
-Linia z odpowiedzią serwera może zawierać albo dwa niepuste ciągi cyfr rozdzielone znakiem /,
-albo pięć liter składających się na słowo „ERROR”.
-
-(Uwaga na marginesie: wszystkie linie, i te wysyłane przez klientów, i przez serwer,
-mają oczywiście do opisanej powyżej zawartości dołączony terminator linii, czyli \r\n.)
-
-Serwer może, ale nie musi, zamykać połączenie w reakcji na nienaturalne zachowanie klienta.
-Obejmuje to wysyłanie danych binarnych zamiast znaków ASCII,
-wysyłanie linii o długości przekraczającej przyjęty w kodzie źródłowym serwera limit,
-długi okres nieaktywności klienta itd. Jeśli serwer narzuca maksymalną długość linii,
-to limit ten powinien wynosić co najmniej 1024 bajty (1022 drukowalne znaki i dwubajtowy terminator linii).
-
-Serwer nie powinien zamykać połączenia gdy udało mu się odebrać poprawną linię w sensie ogólnej definicji,
-ale dane w niej zawarte są niepoprawne (np. oprócz liter i spacji są przecinki).
-Powinien wtedy zwracać komunikat błędu i przechodzić do przetwarzania następnej linii przesłanej przez klienta.
-**/
-
 std::vector<std::string> divide(std::string &data, const std::string &del) {
 	std::vector<std::string> parts;
 
@@ -53,7 +21,20 @@ std::vector<std::string> divide(std::string &data, const std::string &del) {
 		pos = data.find(del);
 	}
 
+	if (del == " " && !data.empty()) {
+		parts.push_back(data.substr(0, pos));
+		data.erase(0, pos + del.length());
+	}
+
 	return parts;
+}
+
+std::vector<std::string> get_queries(std::string &data) {
+	return divide(data, "\r\n");
+}
+
+std::vector<std::string> get_words(std::string &data) {
+	return divide(data, " ");
 }
 
 bool is_palindrome(const std::string &word) {
@@ -84,7 +65,7 @@ std::string get_response(std::string &query) {
 	if (!is_valid_query(query)) {
 		response = "ERROR";
 	} else {
-		auto words = divide(query, " ");
+		auto words = get_words(query);
 		auto palindromes = 0;
 
 		for (const auto & word : words) {
@@ -93,9 +74,10 @@ std::string get_response(std::string &query) {
 			}
 		}
 
-		response += palindromes + "/" + words.size();
+		response += std::to_string(palindromes) + "/" + std::to_string(words.size());
 	}
 
+	std::cout << "Response: \"" << response << "\"" << std::endl;
 	return response + "\r\n";
 }
 
@@ -105,6 +87,8 @@ int main() {
 		perror("socket");
 		return 1;
 	}
+
+	std::cout << "Server socket created: fd=" << server_fd << std::endl;
 
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
@@ -148,41 +132,59 @@ int main() {
 				epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &cev);
 
 			} else {
+				std::cout << "Hey! Here is client_fd=" << fd << std::endl;
+
 				char buffer[BUF_SIZE];
 				ssize_t bytes = recv(fd, buffer, sizeof(buffer), 0);
-				if (bytes < 2 || bytes >= BUF_SIZE) {
-					if (close(fd)) {
-						perror("close");
-						return 1;
-					}
 
+				if (bytes == -1) {
+					perror("recv");
 					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
+					continue;
+				}
 
-				} else {
-					std::string data;
-					if (state.find(fd) != state.end()) {
-						data = state[fd];
-						state.erase(fd);
-					}
+				if (bytes == 0) {
+					std::cout << "Received 0 bytes from fd=" << fd << std::endl;
+					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
+					continue;
+				}
 
-					data += std::string(buffer, bytes);
-					auto queries = divide(data, "\r\n");
-					if (!data.empty()) {
-						state[fd] = data;
-					}
+				std::string data;
+				if (state.find(fd) != state.end()) {
+					std::cout << "Found state of fd=" << fd << ", state=\"" << state[fd] << "\"" << std::endl;
+					data = state[fd];
+				}
 
-					std::string response;
-					for (auto &query : queries) {
-						response += get_response(query);
-					}
+				data += std::string(buffer, bytes);
+				std::cout << "Data: \"" << data << "\"" << std::endl;
 
-					if (is_valid_response(response)) {
-						send(fd, response.data(), response.size(), 0);
-					} else {
-						perror("invalid response");
-						if (close(fd)) perror("close");
-						return 1;
+				auto queries = get_queries(data);
+				for (const auto &query : queries) {
+					std::cout << "Query: \"" << query << "\"" << std::endl;
+				}
+
+				if (!data.empty()) {
+					state[fd] = data;
+					std::cout << "Saving state for fd=" << fd << ": \"" << data << "\"" << std::endl;
+				} else if (state.find(fd) != state.end()) {
+					state.erase(fd);
+					std::cout << "Deleting state of fd=" << fd << std::endl;
+				}
+
+				if (!state.empty()) {
+					std::cout << "State: " << std::endl;
+					for (auto &pair : state) {
+						std::cout << "fd: " << pair.first << "-> data: \"" << pair.second << "\"" << std::endl;
 					}
+				}
+
+				std::string response;
+				for (auto &query : queries) {
+					response += get_response(query);
+				}
+
+				if (!response.empty() && is_valid_response(response)) {
+					send(fd, response.data(), response.size(), 0);
 				}
 			}
 		}
